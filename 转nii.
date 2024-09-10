@@ -1,0 +1,103 @@
+def group_dicom_by_series(input_folder, output_folder):
+    dicom_files = [os.path.join(input_folder, f) for f in os.listdir(input_folder) if f.endswith('.dcm')]
+    #print("找到的DICOM文件：", dicom_files)
+    dicom_groups = {}
+
+    for file_path in dicom_files:
+        ds = pydicom.dcmread(file_path)
+        series_description = ds.SeriesDescription
+        if series_description not in dicom_groups:
+            dicom_groups[series_description] = []
+        dicom_groups[series_description].append(file_path)
+        #print('当前的dicom_groups:', dicom_groups)
+    # 循环结束后统计不同 SeriesDescription 对应的文件数量
+    num_sequences = len(dicom_groups)
+    # 打印序列数
+    #print("总共有{}个序列".format(num_sequences))
+
+    if len(dicom_groups) > 1:
+        print(f"发现多个序列，总共有{len(dicom_groups)}个序列")
+       for (study_uid, series_uid), files in dicom_groups.items():
+             series_output_folder = os.path.join(output_folder, f"Study_{study_uid}_Series_{series_uid}")
+            os.makedirs(series_output_folder, exist_ok=True)
+       for file in files:
+        shutil.copy(file, series_output_folder)
+
+        return True  # 返回True表示进行了处理
+    else:
+        return False  # 返回False表示未进行处理
+def save_as_nifti(image_array, mask_path, output_path, operation):
+    original_mask = sitk.ReadImage(mask_path)
+    output_image = sitk.GetImageFromArray(image_array)
+
+    # 将输出图像的元数据与原始图像保持一致
+    output_image.SetOrigin(original_mask.GetOrigin())
+    output_image.SetSpacing(original_mask.GetSpacing())
+    output_image.SetDirection(original_mask.GetDirection())
+
+    if operation == "original_image":
+        output_filename = 'original_image.nii'
+    elif operation == "original_mask":
+        output_filename = 'untitled.nii.gz'
+
+    # 保存输出图像
+    output_filepath = os.path.join(output_path, output_filename)
+    sitk.WriteImage(output_image, output_filepath)
+    print(f'Saved output image as {output_filepath}')
+
+ct_root_path = '/Users/zhangluyao/code/date/zhuancun_before'
+path_save = '/Users/zhangluyao/code/date/zhuancun_after'
+
+
+patient_folders = os.listdir(ct_root_path)
+reader = sitk.ImageSeriesReader()
+
+def GetSeriesDescription(full_subfolder_path):
+    reader = sitk.ImageSeriesReader()
+    img_names = reader.GetGDCMSeriesFileNames(full_subfolder_path)
+    SeriesDescription = pydicom.dcmread(img_names[0]).SeriesDescription
+    return SeriesDescription
+
+#2级文件夹，比如：目录/patient_x/分期/######可以用成：目录/目录/patient_x
+#patient_folder就是patient_x
+for patient_folder in patient_folders:
+    ct_path = os.path.join(ct_root_path, patient_folder)
+    subfolders = os.listdir(ct_path)  # 获取patient_folder文件夹下的所有子文件夹####分期文件夹
+    for subfolder in subfolders:
+        try:
+            full_subfolder_path = os.path.join(ct_path, subfolder)
+            if group_dicom_by_series(full_subfolder_path, full_subfolder_path):
+                sub_subfolders = os.listdir(full_subfolder_path)
+                for sub_subfolder in sub_subfolders:
+                    full_sub_subfolder_path = os.path.join(path_save, sub_subfolder)
+                    # 获取对应的series_description
+                    series_description = GetSeriesDescription(full_sub_subfolder_path)
+
+                    output_filename = patient_folder + '_' + sub_subfolder + '_' + series_description
+                    output_path = os.path.join(path_save, output_filename)
+                    if not os.path.exists(output_path):
+                        os.makedirs(output_path)
+                    process_sequence(full_sub_subfolder_path, output_path)
+
+#################一般都是用下面这段的效果
+
+            else:
+              series_description = GetSeriesDescription(full_subfolder_path)
+              path_save3 = os.path.join(path_save, patient_folder)
+              #path_save3 = os.path.join(path_save, subfolder)
+              output_filename = patient_folder + '_' + subfolder + '_' + series_description
+              #output_filename = patient_folder + '_' + subfolder
+             output_filepath = os.path.join(path_save, output_filename)
+              if not os.path.exists(output_path):
+                   os.makedirs(output_path)
+
+              process_sequence(full_subfolder_path, output_path)
+
+
+
+
+
+        except Exception as e:
+            print(f"文件夹发生错误—— {subfolder}: {e}. 跳至下一个文件夹.")
+            continue
+
